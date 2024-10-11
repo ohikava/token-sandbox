@@ -93,8 +93,8 @@
             options: {
                 scales: {
                     y: {
-                        min: -100,
-                        max: 100,
+                        min: -5,
+                        max: 5,
                         beginAtZero: false
                     }
                 }
@@ -147,20 +147,21 @@
             fetch('http://localhost:5001/getAllBalances')
                 .then(response => response.json())
                 .then(data => {
-                    barChart1.data.labels = data.balances.map(balance => balance.address);
+                    barChart1.data.labels = data.balances.map(balance => balance.address.slice(0, 4));
                     barChart1.data.datasets[0].data = data.balances.map(balance => Number(balance.ethBalance));
                     barChart1.update();
                     
-                    barChart2.data.labels = data.balances.map(balance => balance.address);
+                    barChart2.data.labels = data.balances.map(balance => balance.address.slice(0, 4));
                     barChart2.data.datasets[0].data = data.balances.map(balance => Number(balance.tokenBalance));
                     barChart2.update();
                 });
 
-            fetch('http://localhost:5001/getprice')
+            fetch('http://localhost:5001/getpricehistory')
                 .then(response => response.json())
                 .then(data => {
+                    const pricesChanges = data.priceHistory;
                     if (((pricesChanges.length > 0) && (Number(data.price) != Number(pricesChanges[pricesChanges.length - 1]))) || (pricesChanges.length == 0)) { 
-                        pricesChanges.push(data.price);
+                        // pricesChanges.push(data.price);
                     
                         lineChart.data.labels = Array.from({ length: pricesChanges.length }, (_, i) => i);
                         const pricesChangesPercents = pricesChanges.map((i) => (i-pricesChanges[0]) / pricesChanges[0] * 100);
@@ -172,11 +173,11 @@
             fetch('http://localhost:5001/getwalletchanges')
                 .then(response => response.json())
                 .then(data => {
-                    ethChangeChart.data.labels = data.changes.map(change => change.address);
+                    ethChangeChart.data.labels = data.changes.map(change => change.address.slice(0, 4));
                     ethChangeChart.data.datasets[0].data = data.changes.map(change => change.ethChange);
                     ethChangeChart.update();
 
-                    tokenChangeChart.data.labels = data.changes.map(change => change.address);
+                    tokenChangeChart.data.labels = data.changes.map(change => change.address.slice(0, 4));
                     tokenChangeChart.data.datasets[0].data = data.changes.map(change => change.tokenChange);
                     tokenChangeChart.update();
                 });

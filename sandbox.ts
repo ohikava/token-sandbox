@@ -23,6 +23,7 @@ export class Sandbox {
     public initial_price: number;
     public ethBalanceSnap: bigint;
     public tokenBalanceSnap: bigint;
+    public priceHistory: number[];
 
     constructor(tokenSupply: number, pooledEthLiquidity: number, decimals: number) {
         let tokenSupplyWei = parseEther(tokenSupply.toString());
@@ -37,11 +38,20 @@ export class Sandbox {
         this.isRunning = false;
         this.tokenHoldings = new Map<string, bigint>();
         this.ethHoldings = new Map<string, bigint>();
-        this.state_snapshot = null;
 
         this.initial_price = this.getPrice();
         this.ethBalanceSnap = this.ethBalance;
         this.tokenBalanceSnap = this.tokenBalance;
+        this.priceHistory = [];
+
+        const wallets = this.getAllWallets();
+        const balances = wallets.map(wallet => ({
+            address: wallet,
+            ethBalance: Number(formatEther(this.ethHoldings.get(wallet) || BigInt(0))),
+            tokenBalance: Number(formatEther(this.tokenHoldings.get(wallet) || BigInt(0)))
+        }));
+
+        this.state_snapshot = balances;
     }
 
     public buy(buyerPublicKey: string, ethInput: number, slippage: number): void {
@@ -57,7 +67,7 @@ export class Sandbox {
         updateHoldings(this.ethHoldings, buyerPublicKey, -ethWei);
 
         const price = this.getPrice();
-
+        this.priceHistory.push(price);
         const prevTokenBalance = this.tokenHoldings.get(buyerPublicKey) || BigInt(0);
         const prevEthBalance = this.ethHoldings.get(buyerPublicKey) || BigInt(0);
 
@@ -79,6 +89,7 @@ export class Sandbox {
         this.updateHoldings(this.ethHoldings, sellerPublicKey, ethOutputWei);
 
         const price = this.getPrice();
+        this.priceHistory.push(price);
         const price_change = truncateDecimal((price - this.initial_price) / this.initial_price * 100, 2);
         logger.info(`SELL ${sellerPublicKey} ETH: ${minEthOutput} TOKEN: ${tokenInput} DELTA TOKEN: ${token_delta}, PRICE CHANGE: ${price_change}%`)
         
@@ -150,13 +161,15 @@ export class Sandbox {
             const ethBalance = Number(formatEther(ethBalanceWei));
             const ethToBuy = ethBalance;
 
-            this.buy(wallets[i], ethToBuy, 0);
+            this.buy(wallets[i], ethToBuy - 0.01, 0);
         }
         const newTokenPrice = Number(this.ethBalance) / Number(this.tokenBalance);
         logger.info(`Token price after distribution: ${newTokenPrice}`);
         logger.info(`Token price change: ${(Number(newTokenPrice - tokenPrice) / Number(tokenPrice)) * 100}%`);
 
+
         this.initial_price = newTokenPrice;
+        this.priceHistory = [newTokenPrice];
         const balances = wallets.map(wallet => ({
             address: wallet,
             ethBalance: Number(formatEther(this.ethHoldings.get(wallet) || BigInt(0))),

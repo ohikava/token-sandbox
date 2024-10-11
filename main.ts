@@ -83,6 +83,10 @@ app.get("/getwalletchanges", (req: any, res: any) => {
     res.json({changes: changes_list });
 });
 
+app.get("/getpricehistory", (req: any, res: any) => {
+    res.json({ priceHistory: sandbox.priceHistory });
+});
+
 app.listen(port, () => {
     console.log(`Server is running on port ${port}`);
 });
