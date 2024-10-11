@@ -55,6 +55,33 @@ app.post("/sell", (req: any, res: any) => {
     res.json({ message: "Sold" });
 });
 
+app.get("/getAllBalances", (req: any, res: any) => {
+    const wallets = sandbox.getAllWallets(); // Assuming this method exists in sandbox
+    const balances = wallets.map((wallet: any) => ({
+        address: wallet,
+        ethBalance: sandbox.getBalance(wallet),
+        tokenBalance: sandbox.getTokenBalance(wallet)
+    }));
+    res.json({ balances });
+});
+app.get("/reloadState", (req: any, res: any) => {
+    sandbox.reloadState();
+    res.json({ message: "State reloaded" });
+});
+
+app.get("/getwalletchanges", (req: any, res: any) => {
+    const changes = sandbox.getWalletChanges();
+    const changes_list = [];
+    for (const [address, change] of changes) {
+        changes_list.push({
+            address,
+            ethChange: change.ethChange,
+            tokenChange: change.tokenChange
+        });
+    }
+
+    res.json({changes: changes_list });
+});
 
 app.listen(port, () => {
     console.log(`Server is running on port ${port}`);

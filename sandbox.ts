@@ -1,6 +1,6 @@
 import { formatEther, parseEther } from "viem";
 import * as logger from "./logger";
-import {getRandomDecimalInRange} from "./utils";
+import {getRandomDecimalInRange, truncateDecimal} from "./utils";
 import * as fs from 'fs';
 
 
@@ -19,6 +19,10 @@ export class Sandbox {
     public isRunning: boolean;
     public tokenHoldings: Map<string, bigint>;
     public ethHoldings: Map<string, bigint>;
+    public state_snapshot: any;
+    public initial_price: number;
+    public ethBalanceSnap: bigint;
+    public tokenBalanceSnap: bigint;
 
     constructor(tokenSupply: number, pooledEthLiquidity: number, decimals: number) {
         let tokenSupplyWei = parseEther(tokenSupply.toString());
@@ -33,45 +37,52 @@ export class Sandbox {
         this.isRunning = false;
         this.tokenHoldings = new Map<string, bigint>();
         this.ethHoldings = new Map<string, bigint>();
+        this.state_snapshot = null;
+
+        this.initial_price = this.getPrice();
+        this.ethBalanceSnap = this.ethBalance;
+        this.tokenBalanceSnap = this.tokenBalance;
     }
 
     public buy(buyerPublicKey: string, ethInput: number, slippage: number): void {
         const tokenOutput = this.getTokenOutputForEthInput(ethInput);
         const ethWei = parseEther(ethInput.toString());
         const tokenOutputWei = parseEther(tokenOutput.toString());
-
-        // Update pool state
+        const delta_eth = this.getBalance(buyerPublicKey) - ethInput;
+        
         this.tokenBalance -= tokenOutputWei;
         this.ethBalance += ethWei;
 
-        // Update mappings
         updateHoldings(this.tokenHoldings, buyerPublicKey, tokenOutputWei);
         updateHoldings(this.ethHoldings, buyerPublicKey, -ethWei);
 
-        
-        // Log the changes in buyer's holdings
+        const price = this.getPrice();
+
         const prevTokenBalance = this.tokenHoldings.get(buyerPublicKey) || BigInt(0);
         const prevEthBalance = this.ethHoldings.get(buyerPublicKey) || BigInt(0);
 
-        this.dumpState(true, ethInput, tokenOutput);
+        const price_change = truncateDecimal((price - this.initial_price) / this.initial_price * 100, 2);
+        logger.info(`BUY ${buyerPublicKey} ETH: ${ethInput} TOKEN: ${tokenOutput}, DELTA ETH: ${delta_eth}, PRICE CHANGE: ${price_change}%`)
+
     }
 
     public sell(sellerPublicKey: string, tokenInput: number, slippage: number): void {
         const minEthOutput = this.getEthOutputForTokenInput(tokenInput);
         const tokenInputWei = parseEther(tokenInput.toString());
         const ethOutputWei = parseEther(minEthOutput.toString());
+        const token_delta = this.getTokenBalance(sellerPublicKey) - tokenInput;
 
-        // Update pool state
         this.tokenBalance += tokenInputWei;
         this.ethBalance -= ethOutputWei;
-
-        // Update mappings
+        
         this.updateHoldings(this.tokenHoldings, sellerPublicKey, -tokenInputWei);
         this.updateHoldings(this.ethHoldings, sellerPublicKey, ethOutputWei);
 
-        // Log the changes in seller's holdings
+        const price = this.getPrice();
+        const price_change = truncateDecimal((price - this.initial_price) / this.initial_price * 100, 2);
+        logger.info(`SELL ${sellerPublicKey} ETH: ${minEthOutput} TOKEN: ${tokenInput} DELTA TOKEN: ${token_delta}, PRICE CHANGE: ${price_change}%`)
         
-        this.dumpState(false, minEthOutput, tokenInput);
+
     }
 
     public getPrice(): number {
@@ -126,44 +137,71 @@ export class Sandbox {
         logger.info(`walletsWithTokens: ${walletsWithTokens}`)
         logger.info(`walletsWithoutTokens: ${walletsWithoutTokens}`)
 
-        // Distribute ETH to all wallets
         for (let i = 0; i < totalWallets; i++) {
             const ethAmount = getRandomDecimalInRange(minEth, maxEth);
             this.updateHoldings(this.ethHoldings, wallets[i], parseEther(ethAmount.toString()));
         }
 
-        // Calculate the current token price
         const tokenPrice = Number(this.ethBalance) / Number(this.tokenBalance);
         logger.info(`Token price before distribution: ${tokenPrice}`);
 
-        // Buy tokens for 90% of ETH balance for each wallet
         for (let i = 0; i < walletsWithTokens; i++) {
             const ethBalanceWei = this.ethHoldings.get(wallets[i]) || BigInt(0);
             const ethBalance = Number(formatEther(ethBalanceWei));
-            const ethToBuy = ethBalance * 0.9; // 90% of ETH balance
+            const ethToBuy = ethBalance;
 
             this.buy(wallets[i], ethToBuy, 0);
         }
         const newTokenPrice = Number(this.ethBalance) / Number(this.tokenBalance);
         logger.info(`Token price after distribution: ${newTokenPrice}`);
         logger.info(`Token price change: ${(Number(newTokenPrice - tokenPrice) / Number(tokenPrice)) * 100}%`);
-    }
 
-    public dumpState(isBuy: boolean, ethInput: number, tokenOutput: number): void {
-        const state = {
-            isBuy: isBuy,
-            ethInput: ethInput,
-            tokenOutput: tokenOutput,
-            tokenBalance: Number(formatEther(this.tokenBalance)),
-            ethBalance: Number(formatEther(this.ethBalance)),
-            price: Number(this.ethBalance / this.tokenBalance)
-        }
-        const stateJson = JSON.stringify(state);
-        fs.appendFileSync('sandbox_state.json', stateJson + "\n");
-    }
+        this.initial_price = newTokenPrice;
+        const balances = wallets.map(wallet => ({
+            address: wallet,
+            ethBalance: Number(formatEther(this.ethHoldings.get(wallet) || BigInt(0))),
+            tokenBalance: Number(formatEther(this.tokenHoldings.get(wallet) || BigInt(0)))
+        }));
 
+        this.state_snapshot = balances;
+        this.ethBalanceSnap = this.ethBalance;
+        this.tokenBalanceSnap = this.tokenBalance;
+    }
 
     public getGasPrice(): number {
         return 2.1;
     }
+
+    public getAllWallets(): string[] {
+        return Array.from(this.ethHoldings.keys());
+    }
+    public reloadState(): void {
+        this.tokenBalance = this.tokenBalanceSnap;
+        this.ethBalance = this.ethBalanceSnap;
+
+        this.tokenHoldings = new Map<string, bigint>();
+        this.ethHoldings = new Map<string, bigint>();
+
+        for (const wallet of this.getAllWallets()) {
+            this.tokenHoldings.set(wallet, this.state_snapshot.tokenHoldings.get(wallet) || BigInt(0));
+            this.ethHoldings.set(wallet, this.state_snapshot.ethHoldings.get(wallet) || BigInt(0));
+        }
+    }
+
+public getWalletChanges(): Map<string, { ethChange: number; tokenChange: number }> {
+    const res = new Map<string, { ethChange: number; tokenChange: number }>();
+    for (const wallet of this.state_snapshot) {
+        const address = wallet.address;
+        const initialEthBalance = wallet.ethBalance;
+        const currentEthBalance = this.getBalance(address);
+        const initialTokenBalance = wallet.tokenBalance;
+        const currentTokenBalance = this.getTokenBalance(address);
+
+        const ethChange = currentEthBalance - initialEthBalance
+        const tokenChange = currentTokenBalance - initialTokenBalance
+        res.set(address, { ethChange, tokenChange });
+    }
+    return res;
+
+}
 }
