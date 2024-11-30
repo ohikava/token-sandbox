@@ -50,6 +50,7 @@ class TestSandbox(unittest.TestCase):
         self.sandbox.buy("buyer1", 100)
         self.sandbox.sell("seller1", 50)
         self.assertGreater(len(self.sandbox.price_history), 0)
+        
 
 if __name__ == '__main__':
     unittest.main()
