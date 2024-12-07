@@ -1,7 +1,7 @@
 import asyncio
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, WebSocket
 from pydantic import BaseModel
-from typing import List
+from typing import List, Set
 from sandbox import Sandbox
 import concurrent.futures
 
@@ -37,6 +37,34 @@ def get_balance(public_key: str):
 def get_token_balance(public_key: str):
     return {"tokenBalance": sandbox.get_token_balance(public_key)}
 
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: Set[WebSocket] = set()
+
+    async def connect(self, websocket: WebSocket):
+        await websocket.accept()
+        self.active_connections.add(websocket)
+
+    def disconnect(self, websocket: WebSocket):
+        self.active_connections.remove(websocket)
+
+    async def broadcast(self, message: dict):
+        for connection in self.active_connections:
+            try:
+                await connection.send_json(message)
+            except:
+                # Connection might be closed
+                continue
+manager = ConnectionManager()
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    await manager.connect(websocket)
+    try:
+        while True:
+            await websocket.receive_text()  # Keep connection alive
+    except:
+        manager.disconnect(websocket)
+
 @app.post("/buy")
 async def buy(transaction: Transaction):
     await sandbox.buy(transaction.walletAddress, transaction.amount)
@@ -45,6 +73,8 @@ async def buy(transaction: Transaction):
 @app.post("/sell")
 async def sell(transaction: Transaction):
     await sandbox.sell(transaction.walletAddress, transaction.amount)
+    if manager.active_connections:  # Only broadcast if there are connections
+        await manager.broadcast(sandbox.tx[-1])  # Broadcast the last transaction
     return {"message": "Sold"}
 
 @app.get("/getprice", response_model=PriceResponse)

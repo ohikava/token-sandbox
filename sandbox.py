@@ -92,7 +92,6 @@ class Sandbox:
 
     def get_all_wallets(self):
         return [i for i in self.sol_holdings.keys() if i not in self.wallets_for_random_tx]
-
     def get_token_balance(self, public_key):
         return self.token_holdings.get(public_key, 0)
 
