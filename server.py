@@ -1,4 +1,6 @@
 import asyncio
+import time
+import uuid
 from fastapi import FastAPI, HTTPException, WebSocket
 from pydantic import BaseModel
 from typing import List, Set
@@ -11,6 +13,7 @@ class Transaction(BaseModel):
     amount: float
     slippage: float
     walletAddress: str
+    ca: str
 
 class PriceHistoryResponse(BaseModel):
     priceHistory: List[dict]
@@ -19,109 +22,172 @@ class DistributionBody(BaseModel):
     wallets: List[str]
     sol_amount: float
     holders_ratio: float
+    ca: str
 
 class PriceResponse(BaseModel):
     price: float
 
-sandbox = Sandbox(token_supply=1000000, pooled_sol=1000, decimals=9, fee=0.0001) 
+class RandomTransactionsBody(BaseModel):
+    num_txs: int
+    interval: int
+    regime: str
+    ca: str
+CA = [
+    "4gaFmTcPiDzH6iGF57BbRi2ZXG7yLqUXh1hFHuZXpump",
+    "3D63Em2RZQAFU9pPKE7JBRkHgw1VeqMQc1udkeegpump",
+    "36EDhw36PVwXAZZcteF2uDPpYPzJt9pivpKQVGGYpump",
+    "6zNYQSxnSZRZkgG5HM7FepF8y17DVyQm4ProHcXKpump",
+    "HMY5WQhrKN6mWar98nRmtxTja8zXgw94UFdjhsLNpump",
+    "EXYEJtv6qEu8Efrf7exPX6s49KtVNgKkBmf4YqG1pump",
+    "BtargL5u77J8jYW35boKhKoqfSTFVyJBiV6RCzXpump",
+    "8wwtyF8XfpAa7gvWq4ZZaob5aL8sjVeGta8YRRNEpump",
+    "6ByeCaCTA4JrzvEXZwu9fwbjY1EVL4HsEfnA9ttEpump",
+    "yviwboP29tMSjWk2SkgXN7wTUGmBsYxjk4GXopvpump"
+]
+ca2sandbox = {ca: Sandbox(token_supply=1000000, pooled_sol=1000, decimals=9, fee=0.0001) for ca in CA}
+
+@app.get("/getallca")
+def get_all_ca():
+    return {"ca": CA}
 
 @app.get("/getreserves")
-def get_reserves():
-    return {"solReserves": sandbox.sol_balance, "tokenReserves": sandbox.token_balance}
+def get_reserves(ca: str = ""):
+    return {"solReserves": ca2sandbox[ca].sol_balance, "tokenReserves": ca2sandbox[ca].token_balance}
 
-@app.get("/getbalance/{public_key}")
-def get_balance(public_key: str):
-    return {"balance": sandbox.get_balance(public_key)}
+@app.get("/getbalance")
+def get_balance(ca: str = "", public_key: str = ""):
+    return {"balance": ca2sandbox[ca].get_balance(public_key)}
 
-@app.get("/gettokenbalance/{public_key}")
-def get_token_balance(public_key: str):
-    return {"tokenBalance": sandbox.get_token_balance(public_key)}
+@app.get("/gettokenbalance")
+def get_token_balance(ca: str = "", public_key: str = ""):
+    return {"tokenBalance": ca2sandbox[ca].get_token_balance(public_key)}
 
-class ConnectionManager:
-    def __init__(self):
-        self.active_connections: Set[WebSocket] = set()
 
-    async def connect(self, websocket: WebSocket):
-        await websocket.accept()
-        self.active_connections.add(websocket)
+# @app.post("/buy")
+# async def buy(transaction: Transaction):
+#     ca = transaction.ca
+#     await ca2sandbox[ca].buy(transaction.walletAddress, transaction.amount)
+#     return {"message": "Bought"}
 
-    def disconnect(self, websocket: WebSocket):
-        self.active_connections.remove(websocket)
-
-    async def broadcast(self, message: dict):
-        for connection in self.active_connections:
-            try:
-                await connection.send_json(message)
-            except:
-                # Connection might be closed
-                continue
-manager = ConnectionManager()
-@app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
-    await manager.connect(websocket)
-    try:
-        while True:
-            await websocket.receive_text()  # Keep connection alive
-    except:
-        manager.disconnect(websocket)
-
-@app.post("/buy")
-async def buy(transaction: Transaction):
-    await sandbox.buy(transaction.walletAddress, transaction.amount)
-    return {"message": "Bought"}
-
-@app.post("/sell")
-async def sell(transaction: Transaction):
-    await sandbox.sell(transaction.walletAddress, transaction.amount)
-    if manager.active_connections:  # Only broadcast if there are connections
-        await manager.broadcast(sandbox.tx[-1])  # Broadcast the last transaction
-    return {"message": "Sold"}
+# @app.post("/sell")
+# async def sell(transaction: Transaction):
+#     ca = transaction.ca
+#     await ca2sandbox[ca].sell(transaction.walletAddress, transaction.amount)
+#     return {"message": "Sold"}
 
 @app.get("/getprice", response_model=PriceResponse)
-def get_price():
-    return {"price": sandbox.get_price()}
+def get_price(ca: str = ""):
+    return {"price": ca2sandbox[ca].get_price()}
 
 @app.get("/getpricehistory", response_model=PriceHistoryResponse)
-def get_price_history():
-    return {"priceHistory": sandbox.price_history}
+def get_price_history(ca: str = ""):
+    return {"priceHistory": ca2sandbox[ca].price_history}
 
 @app.get("/getAllBalances")
-def get_all_balances():
-    wallets = sandbox.get_all_wallets()
-    balances = [{"address": wallet, "ethBalance": sandbox.get_balance(wallet), "tokenBalance": sandbox.get_token_balance(wallet)} for wallet in wallets]
+def get_all_balances(ca: str = ""):
+    wallets = ca2sandbox[ca].get_all_wallets()
+    balances = [{"address": wallet, "ethBalance": ca2sandbox[ca].get_balance(wallet), "tokenBalance": ca2sandbox[ca].get_token_balance(wallet)} for wallet in wallets]
     for balance in balances:
         wallet = balance["address"]
-        balance["solDelta"] = balance["ethBalance"] - sandbox.snapshoot_after_distribution.get(wallet, {}).get("sol_balance", 0)
-        balance["tokenDelta"] = balance["tokenBalance"] - sandbox.snapshoot_after_distribution.get(wallet, {}).get("token_balance", 0)
+        balance["solDelta"] = balance["ethBalance"] - ca2sandbox[ca].snapshoot_after_distribution.get(wallet, {}).get("sol_balance", 0)
+        balance["tokenDelta"] = balance["tokenBalance"] - ca2sandbox[ca].snapshoot_after_distribution.get(wallet, {}).get("token_balance", 0)
 
     return {"balances": balances}
 
 @app.get("/reset")
-def reset():
-    sandbox.reset()
+def reset(ca: str = ""):
+    ca2sandbox[ca].reset()
     return {"message": "State reset"}
-
-@app.get("/getwalletchanges")
-def get_wallet_changes():
-    changes = sandbox.getWalletChanges()
-    changes_list = [{"address": address, "ethChange": change.ethChange, "tokenChange": change.tokenChange} for address, change in changes.items()]
-    return {"changes": changes_list}
 
 @app.post("/distributeTokens")
 async def distribute_tokens(body: DistributionBody):
-    await sandbox.distribute_tokens(body.wallets, body.sol_amount, body.holders_ratio)
+    ca = body.ca
+    await ca2sandbox[ca].distribute_tokens(body.wallets, body.sol_amount, body.holders_ratio)
     return {"message": "Tokens distributed"}
 
 @app.get("/gettx")
-def get_tx():
-    return {"tx": sandbox.tx}
+def get_tx(ca: str = ""):
+    return {"tx": ca2sandbox[ca].tx}
+
+async def generate_random_transactions_with_notification(ca, num_txs, interval, regime):
+    orders = await ca2sandbox[ca].generate_random_transactions(num_txs, interval, regime)
+    for order in orders:
+        if order["isBuy"]:
+            await buy_with_notification(ca, order)
+        else:
+            await sell_with_notification(ca, order)
+        await asyncio.sleep(order["sleep"])
 
 @app.post("/generateRandomTransactions")
-async def generate_random_transactions(body: dict):
-    asyncio.create_task(sandbox.generate_random_transactions(body["num_txs"], body["interval"], body["regime"]))
+async def generate_random_transactions(body: RandomTransactionsBody):
+    ca = body.ca
+    asyncio.create_task(generate_random_transactions_with_notification(ca, body.num_txs, body.interval, body.regime))
     print("Transactions generated")
     return {"message": "Transactions generated"}
+
+from fastapi import WebSocket, WebSocketDisconnect
+
+# Create a list to hold active WebSocket connections
+active_connections = []
+
+async def notify_order(order):
+    for connection in active_connections:
+        await connection.send_json(order)
+
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    await websocket.accept()
+    active_connections.append(websocket)
+    try:
+        while True:
+            await websocket.receive_text()  # Keep the connection open
+    except WebSocketDisconnect:
+        active_connections.remove(websocket)
+
+async def buy_with_notification(ca, order):
+    wallet_address = order["to"]
+    amount = order["amountIn"]
+    await ca2sandbox[ca].buy(wallet_address, amount)
+    await notify_order(order)
+
+async def sell_with_notification(ca, order):
+    wallet_address = order["to"]
+    amount = order["amountIn"]
+    await ca2sandbox[ca].sell(wallet_address, amount)
+    await notify_order(order)
+
+@app.post("/buy")
+async def buy(transaction: Transaction):
+    order = {
+        "amountIn": transaction.amount,
+        "amountOut": ca2sandbox[transaction.ca].get_sol_output_for_token_input(transaction.amount),
+        "isBuy": True,
+        "to": transaction.walletAddress,
+        "timestamp": time.time(),
+        "price": ca2sandbox[transaction.ca].get_price(),
+        "id": str(uuid.uuid4())
+    }
+    ca = transaction.ca
+    await buy_with_notification(ca, order)
+    return {"message": "Bought"}
+
+@app.post("/sell")
+async def sell(transaction: Transaction):
+    order = {
+        "amountIn": transaction.amount,
+        "amountOut": ca2sandbox[transaction.ca].get_sol_output_for_token_input(transaction.amount),
+        "isBuy": False,
+        "to": transaction.walletAddress,
+        "timestamp": time.time(),
+        "price": ca2sandbox[transaction.ca].get_price(),
+        "id": str(uuid.uuid4())
+    }
+    ca = transaction.ca
+    await sell_with_notification(ca, order)
+    return {"message": "Sold"}
+
 
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=5001)
+

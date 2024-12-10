@@ -3,6 +3,7 @@ from math import floor
 from random import shuffle
 import random
 import time
+import uuid
 from loguru import logger
 
 
@@ -124,6 +125,7 @@ class Sandbox:
             }
     
     async def generate_random_transactions(self, num_txs, interval, regime):
+        orders = []
         for _ in range(num_txs):
             while True:
                 wallet = random.choice(self.wallets_for_random_tx)
@@ -131,23 +133,61 @@ class Sandbox:
                 token_balance = self.get_token_balance(wallet)
                 if regime == 'buy' and balance * 0.9 > 0.001:
                     amount = random.uniform(0.001, balance * 0.9)
-                    await self.buy(wallet, amount)
+
+
+                    orders.append({
+                        "sleep": interval,
+                        "amountIn": amount,
+                        "amountOut": self.get_token_output_for_sol_input(amount),
+                        "isBuy": True,
+                        "to": wallet,
+                        "timestamp": time.time(),
+                        "price": self.get_price(),
+                        "id": str(uuid.uuid4())
+                    })
                     break
                 elif regime == 'sell' and token_balance > 0:
                     amount = random.uniform(1, token_balance)
-                    await self.sell(wallet, amount)
+                    orders.append({
+                        "sleep": interval,
+                        "amountIn": amount,
+                        "amountOut": self.get_sol_output_for_token_input(amount),
+                        "isBuy": False,
+                        "to": wallet,
+                        "timestamp": time.time(),
+                        "price": self.get_price(),
+                        "id": str(uuid.uuid4())
+                    })
                     break
                 elif regime == 'shuffle':
                     type_ = random.choice(['buy', 'sell'])
                     if type_ == 'buy' and balance * 0.9 > 0.001:
                         amount = random.uniform(0.001, balance * 0.9)
-                        await self.buy(wallet, amount)
+                        orders.append({
+                            "sleep": interval,
+                            "amountIn": amount,
+                            "amountOut": self.get_token_output_for_sol_input(amount),
+                            "isBuy": True,
+                            "to": wallet,
+                            "timestamp": time.time(),
+                            "price": self.get_price(),
+                            "id": str(uuid.uuid4())
+                        })
                         break
                     elif type_ == 'sell' and token_balance > 0:
                         amount = random.uniform(1, token_balance)
-                        await self.sell(wallet, amount)
+                        orders.append({
+                            "sleep": interval,
+                            "amountIn": amount,
+                            "amountOut": self.get_sol_output_for_token_input(amount),
+                            "isBuy": False,
+                            "to": wallet,
+                            "timestamp": time.time(),
+                            "price": self.get_price(),
+                            "id": str(uuid.uuid4())
+                        })
                         break
-            await asyncio.sleep(interval)
+        return orders
         
     
         

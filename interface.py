@@ -6,15 +6,18 @@ import pandas as pd
 
 
 st.title("Token Sandbox")
+all_ca = requests.get("http://localhost:5001/getallca").json()['ca']
 
 state = {
     "slope": 0,
-    "intercept": 0
+    "intercept": 0,
+    "ca": all_ca[0]
 }
+
 
 @st.fragment(run_every="1s")
 def plot_price_history():
-    data = requests.get("http://localhost:5001/getpricehistory").json()['priceHistory']
+    data = requests.get(f"http://localhost:5001/getpricehistory?ca={state['ca']}").json()['priceHistory']
     priceses = [i['price'] for i in data]
     index = [i['timestamp'] for i in data]
 
@@ -25,7 +28,7 @@ def plot_price_history():
 
 @st.fragment(run_every="1s")
 def plot_tx():
-    data = requests.get("http://localhost:5001/gettx").json()['tx']
+    data = requests.get(f"http://localhost:5001/gettx?ca={state['ca']}").json()['tx']
     df = pd.DataFrame(data, columns=["type", "sender", "amount_in", "amount_out", "price", "timestamp"])
     df = df.sort_values(by='timestamp', ascending=False)
     df['sender'] = df['sender'].str.slice(0, 4) + "..." + df['sender'].str.slice(-4)
@@ -34,17 +37,17 @@ def plot_tx():
 
 @st.fragment(run_every="1s")
 def plot_wallets_balances():
-    data = requests.get("http://localhost:5001/getAllBalances").json()['balances']
+    data = requests.get(f"http://localhost:5001/getAllBalances?ca={state['ca']}").json()['balances']
     df = pd.DataFrame(data, columns=["address", "ethBalance", "tokenBalance", "solDelta", "tokenDelta"])
     df['address'] = df['address'].str.slice(0, 4) + "..." + df['address'].str.slice(-4)
     st.dataframe(df)
 
 @st.fragment(run_every="1s")
 def plot_stats():
-    data = requests.get("http://localhost:5001/getAllBalances").json()['balances']
+    data = requests.get(f"http://localhost:5001/getAllBalances?ca={state['ca']}").json()['balances']
     df = pd.DataFrame(data, columns=["address", "ethBalance", "tokenBalance", "solDelta", "tokenDelta"])
     df['address'] = df['address'].str.slice(0, 4) + "..." + df['address'].str.slice(-4)
-    current_price = requests.get("http://localhost:5001/getprice").json()['price']
+    current_price = requests.get(f"http://localhost:5001/getprice?ca={state['ca']}").json()['price']
     totalSum = df['ethBalance'].sum()
     totalSumTokens = df['tokenBalance'].sum()
     st.text(f"current price: {current_price}")
@@ -62,6 +65,10 @@ plot_tx()
 plot_wallets_balances()
 plot_stats()
 with st.sidebar:
+    ca = st.selectbox("Select ca:", all_ca)
+    if ca != state['ca']:
+        state['ca'] = ca
+
     st.text("trend line")
     slope = st.number_input("Enter slope:", step=0.1, format="%.12f")
     intercept = st.number_input("Enter intercept:", step=0.1, format="%.12f")
@@ -74,7 +81,7 @@ with st.sidebar:
     if reset:
         state["slope"] = 0
         state["intercept"] = 0
-        requests.get("http://localhost:5001/reset")
+        requests.get(f"http://localhost:5001/reset?ca={state['ca']}")
     
     st.text("distribute tokens")
     sol_amount = st.number_input("Enter sol amount:", step=0.1, format="%.4f")
@@ -86,7 +93,7 @@ with st.sidebar:
             wallets = f.read().split(",")
         wallets = [i.replace('"', '') for i in wallets]
         wallets = wallets[:wallets_number]
-        requests.post("http://localhost:5001/distributeTokens", json={"wallets": wallets, "sol_amount": sol_amount, "holders_ratio": holders_ratio})
+        requests.post("http://localhost:5001/distributeTokens", json={"wallets": wallets, "sol_amount": sol_amount, "holders_ratio": holders_ratio, "ca": state['ca']})
     
     st.text("generate random transactions")
     num_txs = st.number_input("Enter number of transactions:", step=1, format="%d", value=20)
@@ -94,7 +101,7 @@ with st.sidebar:
     regime = st.selectbox("Select regime:", ["buy", "sell", "shuffle"])
 
     if st.button("generate"):
-        requests.post("http://localhost:5001/generateRandomTransactions", json={"num_txs": num_txs, "interval": interval, "regime": regime})
+        requests.post("http://localhost:5001/generateRandomTransactions", json={"num_txs": num_txs, "interval": interval, "regime": regime, "ca": state['ca']})
 
 
 
