@@ -112,6 +112,8 @@ def get_tx(ca: str = ""):
 async def generate_random_transactions_with_notification(ca, num_txs, interval, regime):
     orders = await ca2sandbox[ca].generate_random_transactions(num_txs, interval, regime)
     for order in orders:
+        order["ca"] = ca
+    for order in orders:
         if order["isBuy"]:
             await buy_with_notification(ca, order)
         else:
@@ -165,7 +167,8 @@ async def buy(transaction: Transaction):
         "to": transaction.walletAddress,
         "timestamp": time.time(),
         "price": ca2sandbox[transaction.ca].get_price(),
-        "id": str(uuid.uuid4())
+        "id": str(uuid.uuid4()),
+        "ca": transaction.ca
     }
     ca = transaction.ca
     await buy_with_notification(ca, order)
@@ -180,7 +183,8 @@ async def sell(transaction: Transaction):
         "to": transaction.walletAddress,
         "timestamp": time.time(),
         "price": ca2sandbox[transaction.ca].get_price(),
-        "id": str(uuid.uuid4())
+        "id": str(uuid.uuid4()),
+        "ca": transaction.ca
     }
     ca = transaction.ca
     await sell_with_notification(ca, order)
